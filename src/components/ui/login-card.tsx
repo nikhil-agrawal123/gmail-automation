@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { Mail } from 'lucide-react';
+import { Mail, Loader2 } from 'lucide-react';
 import { AppInput } from './app-input';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 
 const GmailIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
@@ -22,8 +23,10 @@ interface LoginCardProps {
 
 const LoginCard = ({ onLoginSuccess }: LoginCardProps) => {
   const navigate = useNavigate();
+  const { signInWithGoogle, loading: authLoading, error: authError } = useAuth();
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isHovering, setIsHovering] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const leftSection = e.currentTarget.getBoundingClientRect();
@@ -33,9 +36,26 @@ const LoginCard = ({ onLoginSuccess }: LoginCardProps) => {
     });
   };
 
-  const handleLogin = (provider: 'gmail' | 'outlook') => {
-    // In a real app, this would trigger OAuth flow
-    console.log(`Logging in with ${provider}`);
+  const handleGmailLogin = async () => {
+    try {
+      setIsLoggingIn(true);
+      await signInWithGoogle();
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      } else {
+        navigate('/inbox');
+      }
+    } catch (error) {
+      console.error('Gmail login failed:', error);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleOutlookLogin = () => {
+    // Outlook OAuth can be implemented similarly with Microsoft Auth
+    console.log('Outlook login - implement with Microsoft Auth');
+    // For now, navigate to inbox
     if (onLoginSuccess) {
       onLoginSuccess();
     } else {
@@ -47,16 +67,18 @@ const LoginCard = ({ onLoginSuccess }: LoginCardProps) => {
     {
       icon: <GmailIcon />,
       name: 'Gmail',
-      onClick: () => handleLogin('gmail'),
+      onClick: handleGmailLogin,
       hoverColor: 'group-hover:text-gmail',
       bgColor: 'group-hover:bg-gmail/10',
+      disabled: isLoggingIn || authLoading,
     },
     {
       icon: <OutlookIcon />,
       name: 'Outlook',
-      onClick: () => handleLogin('outlook'),
+      onClick: handleOutlookLogin,
       hoverColor: 'group-hover:text-outlook',
       bgColor: 'group-hover:bg-outlook/10',
+      disabled: isLoggingIn || authLoading,
     },
   ];
 
@@ -98,18 +120,28 @@ const LoginCard = ({ onLoginSuccess }: LoginCardProps) => {
 
               {/* OAuth Buttons */}
               <div className="space-y-3">
+                {authError && (
+                  <div className="text-red-500 text-sm p-2 bg-red-500/10 rounded-lg">
+                    {authError}
+                  </div>
+                )}
                 {socialProviders.map((provider, index) => (
                   <button
                     key={index}
                     type="button"
                     onClick={provider.onClick}
-                    className={`group w-full h-12 rounded-lg flex items-center justify-center gap-3 border-2 border-border bg-secondary/50 transition-all duration-300 hover:border-accent/30 ${provider.bgColor}`}
+                    disabled={provider.disabled}
+                    className={`group w-full h-12 rounded-lg flex items-center justify-center gap-3 border-2 border-border bg-secondary/50 transition-all duration-300 hover:border-accent/30 disabled:opacity-50 disabled:cursor-not-allowed ${provider.bgColor}`}
                   >
-                    <span className={`text-foreground transition-colors duration-300 ${provider.hoverColor}`}>
-                      {provider.icon}
-                    </span>
+                    {isLoggingIn && provider.name === 'Gmail' ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-foreground" />
+                    ) : (
+                      <span className={`text-foreground transition-colors duration-300 ${provider.hoverColor}`}>
+                        {provider.icon}
+                      </span>
+                    )}
                     <span className="text-foreground font-medium">
-                      Continue with {provider.name}
+                      {isLoggingIn && provider.name === 'Gmail' ? 'Signing in...' : `Continue with ${provider.name}`}
                     </span>
                   </button>
                 ))}

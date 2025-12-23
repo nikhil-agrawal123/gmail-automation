@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Mail, 
@@ -11,88 +11,18 @@ import {
   RefreshCw,
   Settings,
   LogOut,
-  Menu
+  Menu,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { EmailItem } from '@/components/EmailItem';
 import { Button } from '@/components/ui/button';
-
-// Mock email data
-const mockEmails = [
-  {
-    id: 1,
-    sender: 'GitHub',
-    subject: 'Your pull request has been merged',
-    preview: 'Congratulations! Your pull request #42 has been successfully merged into main branch...',
-    time: '2m ago',
-    isStarred: true,
-    isRead: false,
-    hasAttachment: false,
-  },
-  {
-    id: 2,
-    sender: 'Stripe',
-    subject: 'Your monthly invoice is ready',
-    preview: 'Your invoice for December 2024 is now available. Total amount: $299.00...',
-    time: '1h ago',
-    isStarred: false,
-    isRead: false,
-    hasAttachment: true,
-  },
-  {
-    id: 3,
-    sender: 'Notion',
-    subject: 'Weekly digest: Updates in your workspace',
-    preview: 'Here is a summary of what happened in your workspace this week...',
-    time: '3h ago',
-    isStarred: false,
-    isRead: true,
-    hasAttachment: false,
-  },
-  {
-    id: 4,
-    sender: 'Linear',
-    subject: 'You have been assigned to 3 new issues',
-    preview: 'New issues have been assigned to you: Fix login bug, Update dashboard UI, Add tests...',
-    time: '5h ago',
-    isStarred: true,
-    isRead: true,
-    hasAttachment: false,
-  },
-  {
-    id: 5,
-    sender: 'Figma',
-    subject: 'John commented on your design',
-    preview: 'John Smith left a comment: "This looks great! Can we adjust the spacing on..."',
-    time: 'Yesterday',
-    isStarred: false,
-    isRead: true,
-    hasAttachment: false,
-  },
-  {
-    id: 6,
-    sender: 'Slack',
-    subject: 'You have unread messages in #general',
-    preview: 'Catch up on 12 unread messages in the #general channel from your team...',
-    time: 'Yesterday',
-    isStarred: false,
-    isRead: true,
-    hasAttachment: false,
-  },
-  {
-    id: 7,
-    sender: 'AWS',
-    subject: 'Your bill for November 2024',
-    preview: 'Your AWS bill for November 2024 is ready. Total charges: $156.78...',
-    time: '2 days ago',
-    isStarred: false,
-    isRead: true,
-    hasAttachment: true,
-  },
-];
+import { useAuth } from '@/contexts/AuthContext';
+import { fetchGmailMessages, formatRelativeTime, type GmailMessage } from '@/lib/gmail';
 
 const sidebarItems = [
-  { icon: InboxIcon, label: 'Inbox', count: 12, active: true },
-  { icon: Star, label: 'Starred', count: 3 },
+  { icon: InboxIcon, label: 'Inbox', count: 0, active: true },
+  { icon: Star, label: 'Starred', count: 0 },
   { icon: Send, label: 'Sent' },
   { icon: Archive, label: 'Archive' },
   { icon: Trash2, label: 'Trash' },
@@ -100,12 +30,66 @@ const sidebarItems = [
 
 const Inbox = () => {
   const navigate = useNavigate();
+  const { user, accessToken, signOut } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [emails, setEmails] = useState<GmailMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleLogout = () => {
+  const fetchEmails = async (showRefreshSpinner = false) => {
+    if (!accessToken) {
+      setError('No access token available. Please sign in again.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      if (showRefreshSpinner) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      setError(null);
+      
+      const messages = await fetchGmailMessages(accessToken, 20);
+      setEmails(messages);
+    } catch (err: any) {
+      console.error('Error fetching emails:', err);
+      setError(err.message || 'Failed to fetch emails');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (accessToken) {
+      fetchEmails();
+    } else {
+      setIsLoading(false);
+      setError('Please sign in to view your emails.');
+    }
+  }, [accessToken]);
+
+  const handleRefresh = () => {
+    fetchEmails(true);
+  };
+
+  const handleLogout = async () => {
+    await signOut();
     navigate('/');
   };
+
+  const unreadCount = emails.filter(e => !e.isRead).length;
+  const starredCount = emails.filter(e => e.labelIds.includes('STARRED')).length;
+
+  const filteredEmails = emails.filter(email => 
+    email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    email.preview.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="h-screen w-full bg-background flex overflow-hidden">
@@ -125,12 +109,31 @@ const Inbox = () => {
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex flex-col h-full">
-          {/* Logo */}
+          {/* Logo and User Info */}
           <div className="p-6 border-b border-border">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mb-4">
               <Mail className="h-6 w-6 text-accent" />
               <span className="text-lg font-semibold text-foreground">MailFlow</span>
             </div>
+            {user && (
+              <div className="flex items-center gap-3">
+                {user.photoURL ? (
+                  <img 
+                    src={user.photoURL} 
+                    alt={user.displayName || 'User'} 
+                    className="w-8 h-8 rounded-full"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-medium">
+                    {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{user.displayName || 'User'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Compose Button */}
@@ -212,33 +215,66 @@ const Inbox = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground">
-              <RefreshCw className="h-4 w-4" />
+            <button 
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="p-2 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </header>
 
         {/* Email List */}
         <div className="flex-1 overflow-y-auto">
-          <div className="border-b border-border px-4 py-3 bg-card/30">
-            <span className="text-sm text-muted-foreground">
-              Showing <span className="text-foreground font-medium">{mockEmails.length}</span> emails
-            </span>
-          </div>
-          
-          {mockEmails.map((email) => (
-            <EmailItem
-              key={email.id}
-              sender={email.sender}
-              subject={email.subject}
-              preview={email.preview}
-              time={email.time}
-              isStarred={email.isStarred}
-              isRead={email.isRead}
-              hasAttachment={email.hasAttachment}
-              onClick={() => console.log('Open email:', email.id)}
-            />
-          ))}
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <Loader2 className="h-8 w-8 animate-spin text-accent" />
+              <p className="text-muted-foreground">Loading your emails...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4 px-4">
+              <AlertCircle className="h-12 w-12 text-destructive" />
+              <p className="text-destructive text-center">{error}</p>
+              <Button onClick={() => fetchEmails()} variant="outline">
+                Try Again
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="border-b border-border px-4 py-3 bg-card/30">
+                <span className="text-sm text-muted-foreground">
+                  Showing <span className="text-foreground font-medium">{filteredEmails.length}</span> of {emails.length} emails
+                  {unreadCount > 0 && (
+                    <span className="ml-2">(<span className="text-accent">{unreadCount} unread</span>)</span>
+                  )}
+                </span>
+              </div>
+              
+              {filteredEmails.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-64 gap-4">
+                  <Mail className="h-12 w-12 text-muted-foreground" />
+                  <p className="text-muted-foreground">
+                    {searchQuery ? 'No emails match your search' : 'No emails found'}
+                  </p>
+                </div>
+              ) : (
+                filteredEmails.map((email) => (
+                  <EmailItem
+                    key={email.id}
+                    sender={email.sender}
+                    subject={email.subject}
+                    preview={email.preview}
+                    time={formatRelativeTime(email.date)}
+                    isStarred={email.labelIds.includes('STARRED')}
+                    isRead={email.isRead}
+                    hasAttachment={email.hasAttachment}
+                    onClick={() => console.log('Open email:', email.id)}
+                  />
+                ))
+              )}
+            </>
+          )}
         </div>
       </main>
     </div>
