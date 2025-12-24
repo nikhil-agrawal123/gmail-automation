@@ -1,0 +1,42 @@
+# Terms of Service
+
+Effective Date: December 24, 2025
+
+These Terms of Service ("Terms") govern your use of our application (the "App"). By using the App, you agree to these Terms.
+
+## Use of the App
+
+- You must be at least 13 years old to use the App.
+- You are responsible for maintaining the confidentiality of your account credentials.
+- You agree to use the App only for lawful purposes and in accordance with these Terms.
+
+## Access to Gmail
+
+- The App requires access to your Gmail account to provide its features.
+- You grant the App permission to access and process your emails for extracting deadlines, events, and workflow-related information.
+
+## Intellectual Property
+
+- All content, trademarks, and intellectual property in the App are owned by the App developers or their licensors.
+- You may not copy, modify, or distribute any part of the App without permission.
+
+## Disclaimer
+
+- The App is provided "as is" without warranties of any kind.
+- We do not guarantee the accuracy or completeness of information extracted from your emails.
+
+## Limitation of Liability
+
+- To the maximum extent permitted by law, we are not liable for any damages arising from your use of the App.
+
+## Termination
+
+- We may suspend or terminate your access to the App at any time for violation of these Terms or for any other reason.
+
+## Changes to Terms
+
+- We may update these Terms from time to time. Continued use of the App after changes constitutes acceptance of the new Terms.
+
+## Contact
+
+If you have any questions about these Terms, please contact us at support@example.com.
