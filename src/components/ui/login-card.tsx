@@ -108,7 +108,7 @@ const LoginCard = ({ onLoginSuccess }: LoginCardProps) => {
               <div className="space-y-4 mb-8">
                 <div className="flex items-center justify-center gap-2 mb-4">
                   <Mail className="h-8 w-8 text-accent" />
-                  <span className="text-xl font-semibold text-foreground">MailFlow</span>
+                  <span className="text-xl font-semibold text-foreground">Gmail Automation</span>
                 </div>
                 <h1 className="text-3xl md:text-4xl font-bold text-foreground">
                   Welcome back

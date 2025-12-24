@@ -30,7 +30,7 @@ const Index = () => {
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Mail className="h-6 w-6 text-accent" />
-            <span className="text-lg font-semibold text-foreground">MailFlow</span>
+            <span className="text-lg font-semibold text-foreground">Gmail Automation</span>
           </div>
           <Button onClick={() => navigate('/login')} variant="outline" className="gap-2">
             Sign In
@@ -119,7 +119,7 @@ const Index = () => {
               Ready to automate your inbox?
             </h2>
             <p className="text-muted-foreground mb-8">
-              Join thousands of professionals who save hours every week with MailFlow.
+              Join thousands of professionals who save hours every week with Gmail Automation.
             </p>
             <Button 
               size="lg" 
@@ -138,11 +138,11 @@ const Index = () => {
         <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Mail className="h-5 w-5" />
-            <span className="text-sm">© 2024 MailFlow. All rights reserved.</span>
+            <span className="text-sm">© 2024 Gmail Automation. All rights reserved.</span>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
-            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
+            <a href="/privacy" className="hover:text-foreground transition-colors">Privacy</a>
+            <a href="/terms" className="hover:text-foreground transition-colors">Terms</a>
             <a href="#" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </div>
