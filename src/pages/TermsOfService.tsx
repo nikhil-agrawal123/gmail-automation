@@ -77,8 +77,8 @@ const TermsOfService = () => {
               <h2 className="text-xl font-semibold text-foreground mt-8 mb-4">Contact</h2>
               <p>
                 If you have any questions about these Terms, please contact us at{' '}
-                <a href="mailto:support@example.com" className="text-accent hover:underline">
-                  support@example.com
+                <a href="mailto:nikhilagrawal6448@gmail.com" className="text-accent hover:underline">
+                  nikhilagrawal6448@gmail.com
                 </a>.
               </p>
             </div>

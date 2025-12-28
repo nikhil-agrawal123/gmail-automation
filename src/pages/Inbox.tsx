@@ -7,25 +7,32 @@ import {
   Star, 
   Trash2, 
   Archive,
-  Search,
   RefreshCw,
   Settings,
   LogOut,
   Menu,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Search,
+  Paperclip
 } from 'lucide-react';
-import { EmailItem } from '@/components/EmailItem';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchGmailMessages, formatRelativeTime, type GmailMessage } from '@/lib/gmail';
+import { 
+  fetchGmailMessages,
+  getInboxStats,
+  fetchLabelDetails,
+  formatRelativeTime,
+  type GmailMessage,
+  type GmailLabel 
+} from '@/lib/gmail';
 
 const sidebarItems = [
-  { icon: InboxIcon, label: 'Inbox', count: 0, active: true },
-  { icon: Star, label: 'Starred', count: 0 },
-  { icon: Send, label: 'Sent' },
-  { icon: Archive, label: 'Archive' },
-  { icon: Trash2, label: 'Trash' },
+  { icon: InboxIcon, label: 'Inbox', count: 0, active: true, id: 'INBOX' },
+  { icon: Star, label: 'Starred', count: 0, id: 'STARRED' },
+  { icon: Send, label: 'Sent', id: 'SENT' },
+  { icon: Archive, label: 'Archive', id: 'ARCHIVE' },
+  { icon: Trash2, label: 'Trash', id: 'TRASH' },
 ];
 
 const Inbox = () => {
@@ -34,11 +41,13 @@ const Inbox = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [emails, setEmails] = useState<GmailMessage[]>([]);
+  const [labels, setLabels] = useState<GmailLabel[]>([]);
+  const [labelStats, setLabelStats] = useState<Record<string, { total: number; unread: number }>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchEmails = async (showRefreshSpinner = false) => {
+  const fetchData = async (showRefreshSpinner = false) => {
     if (!accessToken) {
       setError('No access token available. Please sign in again.');
       setIsLoading(false);
@@ -53,10 +62,45 @@ const Inbox = () => {
       }
       setError(null);
       
-      const messages = await fetchGmailMessages(accessToken, 20);
-      setEmails(messages);
+      // Fetch emails and label stats in parallel
+      const [messagesResult, statsResult] = await Promise.allSettled([
+        fetchGmailMessages(accessToken, 30),
+        getInboxStats(accessToken)
+      ]);
+
+      if (messagesResult.status === 'fulfilled') {
+        setEmails(messagesResult.value);
+      } else {
+        console.error('Failed to fetch messages:', messagesResult.reason);
+      }
+
+      if (statsResult.status === 'fulfilled') {
+        setLabels(statsResult.value.labels);
+        
+        // Fetch detailed stats for important labels
+        const labelIds = ['INBOX', 'STARRED', 'SENT', 'TRASH', 'DRAFT', 'SPAM'];
+        const statsMap: Record<string, { total: number; unread: number }> = {};
+        
+        for (const labelId of labelIds) {
+          try {
+            const labelDetail = await fetchLabelDetails(accessToken, labelId);
+            statsMap[labelId] = {
+              total: labelDetail.messagesTotal || 0,
+              unread: labelDetail.messagesUnread || 0,
+            };
+          } catch (e) {
+            statsMap[labelId] = { total: 0, unread: 0 };
+          }
+        }
+        setLabelStats(statsMap);
+      }
+
+      // If both failed, show error
+      if (messagesResult.status === 'rejected' && statsResult.status === 'rejected') {
+        throw messagesResult.reason;
+      }
     } catch (err: any) {
-      console.error('Error fetching emails:', err);
+      console.error('Error fetching data:', err);
       setError(err.message || 'Failed to fetch emails');
     } finally {
       setIsLoading(false);
@@ -66,7 +110,7 @@ const Inbox = () => {
 
   useEffect(() => {
     if (accessToken) {
-      fetchEmails();
+      fetchData();
     } else {
       setIsLoading(false);
       setError('Please sign in to view your emails.');
@@ -74,7 +118,7 @@ const Inbox = () => {
   }, [accessToken]);
 
   const handleRefresh = () => {
-    fetchEmails(true);
+    fetchData(true);
   };
 
   const handleLogout = async () => {
@@ -82,14 +126,26 @@ const Inbox = () => {
     navigate('/');
   };
 
-  const unreadCount = emails.filter(e => !e.isRead).length;
-  const starredCount = emails.filter(e => e.labelIds.includes('STARRED')).length;
+  // Build dynamic sidebar with counts from label stats
+  const dynamicSidebarItems = sidebarItems.map(item => {
+    const stats = labelStats[item.id];
+    if (stats) {
+      return { ...item, count: stats.unread };
+    }
+    return item;
+  });
 
+  // Filter user labels (exclude system labels)
+  const userLabels = labels.filter(l => l.type === 'user');
+
+  // Filter emails based on search query
   const filteredEmails = emails.filter(email => 
     email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
     email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
     email.preview.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const unreadCount = emails.filter(e => !e.isRead).length;
 
   return (
     <div className="h-screen w-full bg-background flex overflow-hidden">
@@ -146,7 +202,7 @@ const Inbox = () => {
 
           {/* Navigation */}
           <nav className="flex-1 px-3 py-2">
-            {sidebarItems.map((item, index) => (
+            {dynamicSidebarItems.map((item, index) => (
               <button
                 key={index}
                 className={`
@@ -160,7 +216,7 @@ const Inbox = () => {
               >
                 <item.icon className="h-4 w-4" />
                 <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
-                {item.count && (
+                {item.count !== undefined && item.count > 0 && (
                   <span className={`
                     text-xs px-2 py-0.5 rounded-full
                     ${item.active ? 'bg-accent text-accent-foreground' : 'bg-muted text-muted-foreground'}
@@ -209,7 +265,7 @@ const Inbox = () => {
                 placeholder="Search emails..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64 lg:w-80 h-10 pl-10 pr-4 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
+                className="w-48 lg:w-80 h-10 pl-10 pr-4 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
               />
             </div>
           </div>
@@ -236,12 +292,13 @@ const Inbox = () => {
             <div className="flex flex-col items-center justify-center h-full gap-4 px-4">
               <AlertCircle className="h-12 w-12 text-destructive" />
               <p className="text-destructive text-center">{error}</p>
-              <Button onClick={() => fetchEmails()} variant="outline">
+              <Button onClick={() => fetchData()} variant="outline">
                 Try Again
               </Button>
             </div>
           ) : (
             <>
+              {/* Email Stats Summary */}
               <div className="border-b border-border px-4 py-3 bg-card/30">
                 <span className="text-sm text-muted-foreground">
                   Showing <span className="text-foreground font-medium">{filteredEmails.length}</span> of {emails.length} emails
@@ -251,6 +308,7 @@ const Inbox = () => {
                 </span>
               </div>
               
+              {/* Email List */}
               {filteredEmails.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 gap-4">
                   <Mail className="h-12 w-12 text-muted-foreground" />
@@ -259,19 +317,50 @@ const Inbox = () => {
                   </p>
                 </div>
               ) : (
-                filteredEmails.map((email) => (
-                  <EmailItem
-                    key={email.id}
-                    sender={email.sender}
-                    subject={email.subject}
-                    preview={email.preview}
-                    time={formatRelativeTime(email.date)}
-                    isStarred={email.labelIds.includes('STARRED')}
-                    isRead={email.isRead}
-                    hasAttachment={email.hasAttachment}
-                    onClick={() => console.log('Open email:', email.id)}
-                  />
-                ))
+                <div className="divide-y divide-border">
+                  {filteredEmails.map((email) => (
+                    <div
+                      key={email.id}
+                      className={`flex items-start gap-4 px-4 py-3 hover:bg-secondary/50 cursor-pointer transition-colors ${
+                        !email.isRead ? 'bg-accent/5' : ''
+                      }`}
+                      onClick={() => console.log('Open email:', email.id)}
+                    >
+                      {/* Avatar */}
+                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-medium text-sm">
+                        {email.sender.charAt(0).toUpperCase()}
+                      </div>
+                      
+                      {/* Email Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className={`text-sm truncate ${!email.isRead ? 'font-semibold text-foreground' : 'text-foreground'}`}>
+                            {email.sender}
+                          </span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {email.hasAttachment && (
+                              <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {formatRelativeTime(email.date)}
+                            </span>
+                          </div>
+                        </div>
+                        <p className={`text-sm truncate mb-1 ${!email.isRead ? 'font-medium text-foreground' : 'text-foreground'}`}>
+                          {email.subject}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {email.preview}
+                        </p>
+                      </div>
+                      
+                      {/* Star indicator */}
+                      {email.labelIds.includes('STARRED') && (
+                        <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           )}

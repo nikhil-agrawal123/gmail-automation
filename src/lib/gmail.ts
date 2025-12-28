@@ -1,5 +1,3 @@
-// Gmail API service for fetching emails
-
 export interface GmailMessage {
   id: string;
   threadId: string;
@@ -11,6 +9,18 @@ export interface GmailMessage {
   isRead: boolean;
   hasAttachment: boolean;
   labelIds: string[];
+}
+
+export interface GmailLabel {
+  id: string;
+  name: string;
+  type: 'system' | 'user';
+  messageListVisibility?: string;
+  labelListVisibility?: string;
+  messagesTotal?: number;
+  messagesUnread?: number;
+  threadsTotal?: number;
+  threadsUnread?: number;
 }
 
 interface GmailMessageHeader {
@@ -58,7 +68,50 @@ interface GmailListResponse {
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1';
 
 /**
+ * Fetches all Gmail labels using the gmail.labels scope
+ */
+export async function fetchGmailLabels(accessToken: string): Promise<GmailLabel[]> {
+  const response = await fetch(
+    `${GMAIL_API_BASE}/users/me/labels`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(`Failed to fetch labels: ${response.status} - ${errorData.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.labels || [];
+}
+
+/**
+ * Fetches a specific label with details (message counts)
+ */
+export async function fetchLabelDetails(accessToken: string, labelId: string): Promise<GmailLabel> {
+  const response = await fetch(
+    `${GMAIL_API_BASE}/users/me/labels/${labelId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch label ${labelId}: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Fetches the list of message IDs from Gmail
+ * Note: This requires gmail.readonly or gmail.addons.current.message.action scope
  */
 async function fetchMessageIds(accessToken: string, maxResults: number = 20): Promise<string[]> {
   const response = await fetch(
@@ -71,7 +124,15 @@ async function fetchMessageIds(accessToken: string, maxResults: number = 20): Pr
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch messages: ${response.status} ${response.statusText}`);
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.error?.message || response.statusText;
+    
+    // Check if it's a scope/permission error
+    if (response.status === 403) {
+      throw new Error(`Insufficient permissions to read messages. Please sign out and sign in again to grant required permissions. Details: ${errorMessage}`);
+    }
+    
+    throw new Error(`Failed to fetch messages: ${response.status} - ${errorMessage}`);
   }
 
   const data: GmailListResponse = await response.json();
@@ -80,6 +141,7 @@ async function fetchMessageIds(accessToken: string, maxResults: number = 20): Pr
 
 /**
  * Fetches a single message by ID
+ * Note: This requires gmail.readonly or gmail.addons.current.message.action scope
  */
 async function fetchMessage(accessToken: string, messageId: string): Promise<GmailMessageResponse> {
   const response = await fetch(
@@ -92,7 +154,14 @@ async function fetchMessage(accessToken: string, messageId: string): Promise<Gma
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch message ${messageId}: ${response.status}`);
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.error?.message || response.statusText;
+    
+    if (response.status === 403) {
+      throw new Error(`Insufficient permissions to read message content. Details: ${errorMessage}`);
+    }
+    
+    throw new Error(`Failed to fetch message ${messageId}: ${response.status} - ${errorMessage}`);
   }
 
   return response.json();
@@ -196,4 +265,39 @@ export function formatRelativeTime(date: Date): string {
   if (diffDays < 7) return `${diffDays} days ago`;
   
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Gets inbox statistics using labels (works with gmail.labels scope)
+ */
+export async function getInboxStats(accessToken: string): Promise<{
+  inboxTotal: number;
+  inboxUnread: number;
+  labels: GmailLabel[];
+}> {
+  try {
+    // First get all labels
+    const labels = await fetchGmailLabels(accessToken);
+    
+    // Get detailed info for INBOX label
+    const inboxLabel = labels.find(l => l.id === 'INBOX');
+    let inboxStats = { messagesTotal: 0, messagesUnread: 0 };
+    
+    if (inboxLabel) {
+      const inboxDetails = await fetchLabelDetails(accessToken, 'INBOX');
+      inboxStats = {
+        messagesTotal: inboxDetails.messagesTotal || 0,
+        messagesUnread: inboxDetails.messagesUnread || 0,
+      };
+    }
+
+    return {
+      inboxTotal: inboxStats.messagesTotal,
+      inboxUnread: inboxStats.messagesUnread,
+      labels: labels,
+    };
+  } catch (error) {
+    console.error('Error fetching inbox stats:', error);
+    throw error;
+  }
 }

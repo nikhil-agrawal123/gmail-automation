@@ -18,8 +18,14 @@ export const auth = getAuth(app);
 
 // Initialize Google Auth Provider
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-googleProvider.addScope('profile');
-googleProvider.addScope('email');
+
+// Available scopes based on Google Cloud Console configuration
+// Login scopes
+googleProvider.addScope('openid');
+googleProvider.addScope('https://www.googleapis.com/auth/userinfo.email');
+googleProvider.addScope('https://www.googleapis.com/auth/userinfo.profile');
+
+// Gmail API scope - full access for testing
+googleProvider.addScope('https://mail.google.com/');
 
 export default app;
