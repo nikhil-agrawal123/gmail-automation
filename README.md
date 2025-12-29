@@ -1,73 +1,106 @@
-# Welcome to your Lovable project
+# Gmail Automation
 
-## Project info
+A modern web app to view and manage emails from multiple Gmail accounts in a unified inbox. Built with React, TypeScript, and Firebase authentication.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Features
 
-## How can I edit this code?
+- **Google Sign-In** with OAuth2 (Firebase Auth)
+- **Connect multiple Gmail accounts** and view all emails in one place
+- **Unified inbox**: See emails from all connected accounts together
+- **View sender and receiver** for each email
+- **Batch fetching** to avoid Gmail API rate limits (no 429 errors)
+- **Inbox statistics** (total and unread counts)
+- **Responsive UI** with reusable card components
 
-There are several ways of editing your application.
+## Tech Stack
 
-**Use Lovable**
+- React + TypeScript
+- Vite
+- Firebase Auth (Google provider)
+- Gmail REST API
+- Tailwind CSS (for styling)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### 1. Clone the repository
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+git clone https://github.com/nikhil-agrawal123/gmail-automation.git
+cd gmail-automation
 ```
 
-**Edit a file directly in GitHub**
+### 2. Install dependencies
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+npm install
+```
+or
+```bash
+bun install
+```
 
-**Use GitHub Codespaces**
+### 3. Configure environment variables
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Copy `.env.example` to `.env` and fill in your Firebase and Gmail API credentials:
 
-## What technologies are used for this project?
+```
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_firebase_auth_domain
+VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_firebase_messaging_sender_id
+VITE_FIREBASE_APP_ID=your_firebase_app_id
+```
 
-This project is built with:
+### 4. Set up Google Cloud & Gmail API
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- Create a project in [Google Cloud Console](https://console.cloud.google.com/)
+- Enable the Gmail API
+- Set up OAuth2 credentials and add your app's domain to the authorized origins
+- Add the OAuth2 client ID to your Firebase project
 
-## How can I deploy this project?
+### 5. Run the app
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+```bash
+npm run dev
+```
+or 
+```bash
+bun run dev
+```
 
-## Can I connect a custom domain to my Lovable project?
 
-Yes, you can!
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Usage
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- Click "Sign in with Google" to connect your first Gmail account.
+- Use "Add another account" to connect more Gmail accounts.
+- All emails from connected accounts appear in the unified inbox.
+- Each email card shows sender, receiver, subject, and preview.
+- Use the sidebar to filter by account or view all emails together.
+
+## Project Structure
+
+```
+src/
+  components/      # UI components (cards, inbox, etc.)
+  contexts/        # React contexts for auth and email state
+  hooks/           # Custom React hooks
+  interface/       # TypeScript interfaces for Gmail data
+  lib/             # API utilities (gmail.ts, firebase.ts)
+  pages/           # App pages (Inbox, etc.)
+  App.tsx          # Main app component
+```
+
+## Notes
+
+- The app fetches emails in batches (default 10 per batch) with a delay to avoid Gmail API rate limits.
+- Only emails from the inbox are shown by default.
+- Make sure your Google Cloud OAuth consent screen is published for multi-account support.
+
+## License
+
+MIT
+
+---
