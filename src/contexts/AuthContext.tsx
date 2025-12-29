@@ -7,7 +7,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, googleProvider, db } from '@/lib/firebase';
-
+import bcrypt from 'bcryptjs';
 // Interface for a connected account
 export interface ConnectedAccount {
   email: string;
@@ -52,7 +52,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
-  // Store the primary user's UID to use for all Firestore operations
   const [primaryUid, setPrimaryUid] = useState<string | null>(() => {
     return sessionStorage.getItem('primary_uid');
   });
@@ -158,7 +157,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             email: result.user.email,
             displayName: result.user.displayName || result.user.email,
             photoURL: result.user.photoURL,
-            accessToken: token,
+            accessToken:  token,
             isPrimary: accounts.length === 0,
           };
           accounts.push(newAccount);

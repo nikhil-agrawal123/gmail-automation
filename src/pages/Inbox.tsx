@@ -55,24 +55,40 @@ const Inbox = () => {
   const [selectedEmail, setSelectedEmail] = useState<GmailMessage | null>(null);
   const [showEmailDetail, setShowEmailDetail] = useState(false);
   const [replyTo, setReplyTo] = useState('');
+  const [pageTokens, setPageTokens] = useState<Record<string, string | undefined>>({});
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreEmails, setHasMoreEmails] = useState(true);
 
-  const fetchData = async (showRefreshSpinner = false) => {
+  const fetchData = async (showRefreshSpinner = false, loadMore = false) => {
     if (!accessToken && connectedAccounts.length === 0) {
       setError('No access token available. Please sign in again.');
       setIsLoading(false);
       return;
     }
 
+    // Don't load more if already loading or no more emails
+    if (loadMore && (isLoadingMore || !hasMoreEmails)) {
+      return;
+    }
+
     try {
       if (showRefreshSpinner) {
         setIsRefreshing(true);
+      } else if (loadMore) {
+        setIsLoadingMore(true);
       } else {
         setIsLoading(true);
       }
-      setError(null);
+      
+      if (!loadMore) {
+        setError(null);
+      }
       
       // Fetch emails from all connected accounts
-      const allEmails: GmailMessage[] = [];
+      const allNewEmails: GmailMessage[] = [];
+      const newPageTokens: Record<string, string | undefined> = loadMore ? { ...pageTokens } : {};
+      let anyHasMore = false;
+      
       const accountsToFetch = connectedAccounts.length > 0 
         ? connectedAccounts 
         : accessToken 
@@ -81,22 +97,44 @@ const Inbox = () => {
 
       for (const account of accountsToFetch) {
         try {
-          const messages = await fetchGmailMessages(account.accessToken, 30, account.email);
-          allEmails.push(...messages);
+          const currentPageToken = loadMore ? pageTokens[account.email] : undefined;
+          const { messages, nextPageToken } = await fetchGmailMessages(
+            account.accessToken, 
+            10, 
+            account.email,
+            currentPageToken
+          );
+          allNewEmails.push(...messages);
+          newPageTokens[account.email] = nextPageToken;
+          if (nextPageToken) {
+            anyHasMore = true;
+          }
         } catch (err) {
           console.error(`Failed to fetch from ${account.email}:`, err);
         }
       }
 
-      // Sort all emails by date
-      allEmails.sort((a, b) => b.date.getTime() - a.date.getTime());
-      setEmails(allEmails);
+      setPageTokens(newPageTokens);
+      setHasMoreEmails(anyHasMore);
 
-      // Fetch stats from primary account
-      const primaryToken = connectedAccounts.find(a => a.isPrimary)?.accessToken || accessToken;
-      if (primaryToken) {
-        const statsResult = await getInboxStats(primaryToken);
-        setLabels(statsResult.labels);
+      // Sort and set emails
+      if (loadMore) {
+        // Append new emails and sort
+        const combinedEmails = [...emails, ...allNewEmails];
+        combinedEmails.sort((a, b) => b.date.getTime() - a.date.getTime());
+        setEmails(combinedEmails);
+      } else {
+        // Replace emails
+        allNewEmails.sort((a, b) => b.date.getTime() - a.date.getTime());
+        setEmails(allNewEmails);
+      }
+
+      // Fetch stats from primary account (only on initial load)
+      if (!loadMore) {
+        const primaryToken = connectedAccounts.find(a => a.isPrimary)?.accessToken || accessToken;
+        if (primaryToken) {
+          const statsResult = await getInboxStats(primaryToken);
+          setLabels(statsResult.labels);
         
         // Fetch detailed stats for important labels
         const labelIds = ['INBOX', 'STARRED', 'SENT', 'TRASH', 'DRAFT', 'SPAM'];
@@ -114,13 +152,17 @@ const Inbox = () => {
           }
         }
         setLabelStats(statsMap);
+        }
       }
     } catch (err: any) {
       console.error('Error fetching data:', err);
-      setError(err.message || 'Failed to fetch emails');
+      if (!loadMore) {
+        setError(err.message || 'Failed to fetch emails');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+      setIsLoadingMore(false);
     }
   };
 
@@ -135,6 +177,21 @@ const Inbox = () => {
 
   const handleRefresh = () => {
     fetchData(true);
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMoreEmails) {
+      fetchData(false, true);
+    }
+  };
+
+  // Handle scroll for infinite loading
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // Load more when user scrolls within 200px of the bottom
+    if (scrollHeight - scrollTop - clientHeight < 200) {
+      handleLoadMore();
+    }
   };
 
   const handleLogout = async () => {
@@ -374,7 +431,7 @@ const Inbox = () => {
         </header>
 
         {/* Email List */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-full gap-4">
               <Loader2 className="h-8 w-8 animate-spin text-accent" />
@@ -425,6 +482,7 @@ const Inbox = () => {
                   </p>
                 </div>
               ) : (
+                <>
                 <div className="divide-y divide-border">
                   {filteredEmails.map((email) => (
                     <div
@@ -489,6 +547,22 @@ const Inbox = () => {
                     </div>
                   ))}
                 </div>
+                
+                {/* Loading More Indicator */}
+                {isLoadingMore && (
+                  <div className="flex items-center justify-center py-6 gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-accent" />
+                    <p className="text-sm text-muted-foreground">Loading more emails...</p>
+                  </div>
+                )}
+                
+                {/* End of emails indicator */}
+                {!hasMoreEmails && emails.length > 0 && (
+                  <div className="flex items-center justify-center py-6">
+                    <p className="text-sm text-muted-foreground">No more emails to load</p>
+                  </div>
+                )}
+                </>
               )}
             </>
           )}

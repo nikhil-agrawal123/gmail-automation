@@ -83,18 +83,24 @@ export async function fetchLabelDetails(accessToken: string, labelId: string): P
 }
 
 /**
- * Fetches the list of message IDs from Gmail
+ * Fetches the list of message IDs from Gmail with pagination support
  * Note: This requires gmail.readonly or gmail.addons.current.message.action scope
  */
-async function fetchMessageIds(accessToken: string, maxResults: number = 20): Promise<string[]> {
-  const response = await fetch(
-    `${GMAIL_API_BASE}/users/me/messages?maxResults=${maxResults}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
+async function fetchMessageIds(
+  accessToken: string, 
+  maxResults: number = 20,
+  pageToken?: string
+): Promise<{ ids: string[]; nextPageToken?: string }> {
+  let url = `${GMAIL_API_BASE}/users/me/messages?maxResults=${maxResults}`;
+  if (pageToken) {
+    url += `&pageToken=${pageToken}`;
+  }
+  
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -109,7 +115,10 @@ async function fetchMessageIds(accessToken: string, maxResults: number = 20): Pr
   }
 
   const data: GmailListResponse = await response.json();
-  return data.messages?.map((m) => m.id) || [];
+  return {
+    ids: data.messages?.map((m) => m.id) || [],
+    nextPageToken: data.nextPageToken
+  };
 }
 
 /**
@@ -232,18 +241,20 @@ async function fetchMessagesWithThrottle(
 
 /**
  * Fetches top emails from Gmail with throttling to avoid rate limits
+ * Supports pagination with pageToken
  */
 export async function fetchGmailMessages(
   accessToken: string,
   maxResults: number = 10,
-  accountEmail?: string
-): Promise<GmailMessage[]> {
+  accountEmail?: string,
+  pageToken?: string
+): Promise<{ messages: GmailMessage[]; nextPageToken?: string }> {
   try {
-    // Get list of message IDs
-    const messageIds = await fetchMessageIds(accessToken, maxResults);
+    // Get list of message IDs with pagination
+    const { ids: messageIds, nextPageToken: nextToken } = await fetchMessageIds(accessToken, maxResults, pageToken);
 
     if (messageIds.length === 0) {
-      return [];
+      return { messages: [], nextPageToken: undefined };
     }
 
     // Fetch messages in batches of 15-20 to avoid rate limiting
@@ -254,8 +265,11 @@ export async function fetchGmailMessages(
       300 // delay between batches in ms
     );
 
-    // Transform and return with account email
-    return messages.map(msg => transformMessage(msg, accountEmail));
+    // Transform and return with account email and nextPageToken
+    return {
+      messages: messages.map(msg => transformMessage(msg, accountEmail)),
+      nextPageToken: nextToken
+    };
   } catch (error) {
     console.error('Error fetching Gmail messages:', error);
     throw error;
