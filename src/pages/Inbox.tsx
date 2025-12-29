@@ -28,6 +28,8 @@ import {
 } from '@/lib/gmail';
 import { GmailMessage } from '@/interface/GmailMessage';
 import { GmailLabel } from '@/interface/GmailLabel';
+import { ComposeModal } from '@/components/ComposeModal';
+import { EmailDetail } from '@/components/EmailDetail';
 
 const sidebarItems = [
   { icon: InboxIcon, label: 'Inbox', count: 0, active: true, id: 'INBOX' },
@@ -48,6 +50,10 @@ const Inbox = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAccountsDropdown, setShowAccountsDropdown] = useState(false);
   const [selectedAccountFilter, setSelectedAccountFilter] = useState<string | 'all'>('all');
+  const [showCompose, setShowCompose] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState<GmailMessage | null>(null);
+  const [showEmailDetail, setShowEmailDetail] = useState(false);
+  const [replyTo, setReplyTo] = useState('');
 
   const fetchData = async (showRefreshSpinner = false) => {
     if (!accessToken && connectedAccounts.length === 0) {
@@ -274,7 +280,14 @@ const Inbox = () => {
 
           {/* Compose Button */}
           <div className="p-4">
-            <Button className="w-full gap-2" size="lg">
+            <Button 
+              className="w-full gap-2" 
+              size="lg"
+              onClick={() => {
+                setReplyTo('');
+                setShowCompose(true);
+              }}
+            >
               <Mail className="h-4 w-4" />
               Compose
             </Button>
@@ -420,7 +433,10 @@ const Inbox = () => {
                       className={`flex items-start gap-4 px-4 py-3 hover:bg-secondary/50 cursor-pointer transition-colors ${
                         !email.isRead ? 'bg-accent/5' : ''
                       }`}
-                      onClick={() => console.log('Open email:', email.id)}
+                      onClick={() => {
+                        setSelectedEmail(email);
+                        setShowEmailDetail(true);
+                      }}
                     >
                       {/* Avatar */}
                       <div className="flex-shrink-0 w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-medium text-sm">
@@ -479,6 +495,25 @@ const Inbox = () => {
           )}
         </div>
       </main>
+
+      {/* Compose Modal */}
+      <ComposeModal 
+        isOpen={showCompose} 
+        onClose={() => setShowCompose(false)}
+        toEmail={replyTo}
+      />
+
+      {/* Email Detail */}
+      <EmailDetail 
+        email={selectedEmail}
+        isOpen={showEmailDetail}
+        onClose={() => setShowEmailDetail(false)}
+        onReply={(toEmail) => {
+          setShowEmailDetail(false);
+          setReplyTo(toEmail);
+          setShowCompose(true);
+        }}
+      />
     </div>
   );
 };
