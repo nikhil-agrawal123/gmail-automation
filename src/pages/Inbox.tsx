@@ -14,10 +14,13 @@ import {
   Loader2,
   AlertCircle,
   Search,
-  Paperclip
+  Paperclip,
+  UserPlus,
+  X,
+  ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, ConnectedAccount } from '@/contexts/AuthContext';
 import { 
   fetchGmailMessages,
   getInboxStats,
@@ -37,7 +40,7 @@ const sidebarItems = [
 
 const Inbox = () => {
   const navigate = useNavigate();
-  const { user, accessToken, signOut } = useAuth();
+  const { user, accessToken, signOut, connectedAccounts, addAccount, removeAccount } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [emails, setEmails] = useState<GmailMessage[]>([]);
@@ -46,9 +49,11 @@ const Inbox = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAccountsDropdown, setShowAccountsDropdown] = useState(false);
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState<string | 'all'>('all');
 
   const fetchData = async (showRefreshSpinner = false) => {
-    if (!accessToken) {
+    if (!accessToken && connectedAccounts.length === 0) {
       setError('No access token available. Please sign in again.');
       setIsLoading(false);
       return;
@@ -62,20 +67,32 @@ const Inbox = () => {
       }
       setError(null);
       
-      // Fetch emails and label stats in parallel
-      const [messagesResult, statsResult] = await Promise.allSettled([
-        fetchGmailMessages(accessToken, 30),
-        getInboxStats(accessToken)
-      ]);
+      // Fetch emails from all connected accounts
+      const allEmails: GmailMessage[] = [];
+      const accountsToFetch = connectedAccounts.length > 0 
+        ? connectedAccounts 
+        : accessToken 
+          ? [{ email: user?.email || 'primary', accessToken }] 
+          : [];
 
-      if (messagesResult.status === 'fulfilled') {
-        setEmails(messagesResult.value);
-      } else {
-        console.error('Failed to fetch messages:', messagesResult.reason);
+      for (const account of accountsToFetch) {
+        try {
+          const messages = await fetchGmailMessages(account.accessToken, 30, account.email);
+          allEmails.push(...messages);
+        } catch (err) {
+          console.error(`Failed to fetch from ${account.email}:`, err);
+        }
       }
 
-      if (statsResult.status === 'fulfilled') {
-        setLabels(statsResult.value.labels);
+      // Sort all emails by date
+      allEmails.sort((a, b) => b.date.getTime() - a.date.getTime());
+      setEmails(allEmails);
+
+      // Fetch stats from primary account
+      const primaryToken = connectedAccounts.find(a => a.isPrimary)?.accessToken || accessToken;
+      if (primaryToken) {
+        const statsResult = await getInboxStats(primaryToken);
+        setLabels(statsResult.labels);
         
         // Fetch detailed stats for important labels
         const labelIds = ['INBOX', 'STARRED', 'SENT', 'TRASH', 'DRAFT', 'SPAM'];
@@ -83,7 +100,7 @@ const Inbox = () => {
         
         for (const labelId of labelIds) {
           try {
-            const labelDetail = await fetchLabelDetails(accessToken, labelId);
+            const labelDetail = await fetchLabelDetails(primaryToken, labelId);
             statsMap[labelId] = {
               total: labelDetail.messagesTotal || 0,
               unread: labelDetail.messagesUnread || 0,
@@ -93,11 +110,6 @@ const Inbox = () => {
           }
         }
         setLabelStats(statsMap);
-      }
-
-      // If both failed, show error
-      if (messagesResult.status === 'rejected' && statsResult.status === 'rejected') {
-        throw messagesResult.reason;
       }
     } catch (err: any) {
       console.error('Error fetching data:', err);
@@ -109,13 +121,13 @@ const Inbox = () => {
   };
 
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken || connectedAccounts.length > 0) {
       fetchData();
     } else {
       setIsLoading(false);
       setError('Please sign in to view your emails.');
     }
-  }, [accessToken]);
+  }, [accessToken, connectedAccounts.length]);
 
   const handleRefresh = () => {
     fetchData(true);
@@ -138,14 +150,28 @@ const Inbox = () => {
   // Filter user labels (exclude system labels)
   const userLabels = labels.filter(l => l.type === 'user');
 
-  // Filter emails based on search query
-  const filteredEmails = emails.filter(email => 
-    email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    email.preview.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter emails based on search query and account filter
+  const filteredEmails = emails.filter(email => {
+    const matchesSearch = email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      email.recipient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      email.preview.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesAccount = selectedAccountFilter === 'all' || email.accountEmail === selectedAccountFilter;
+    
+    return matchesSearch && matchesAccount;
+  });
 
   const unreadCount = emails.filter(e => !e.isRead).length;
+
+  const handleAddAccount = async () => {
+    try {
+      await addAccount();
+      setShowAccountsDropdown(false);
+    } catch (err) {
+      console.error('Failed to add account:', err);
+    }
+  };
 
   return (
     <div className="h-screen w-full bg-background flex overflow-hidden">
@@ -171,9 +197,14 @@ const Inbox = () => {
               <Mail className="h-6 w-6 text-accent" />
               <span className="text-lg font-semibold text-foreground">Gmail Automation</span>
             </div>
-            {user && (
-              <div className="flex items-center gap-3">
-                {user.photoURL ? (
+            
+            {/* Connected Accounts Section */}
+            <div className="relative">
+              <button
+                onClick={() => setShowAccountsDropdown(!showAccountsDropdown)}
+                className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-secondary transition-colors"
+              >
+                {user?.photoURL ? (
                   <img 
                     src={user.photoURL} 
                     alt={user.displayName || 'User'} 
@@ -181,15 +212,67 @@ const Inbox = () => {
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-medium">
-                    {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                    {user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'U'}
                   </div>
                 )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{user.displayName || 'User'}</p>
-                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-sm font-medium text-foreground truncate">{user?.displayName || 'User'}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {connectedAccounts.length > 0 
+                      ? `${connectedAccounts.length} account${connectedAccounts.length > 1 ? 's' : ''} connected`
+                      : user?.email}
+                  </p>
                 </div>
-              </div>
-            )}
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showAccountsDropdown ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Accounts Dropdown */}
+              {showAccountsDropdown && (
+                <div className="absolute left-0 right-0 mt-2 bg-card border border-border rounded-lg shadow-lg z-50">
+                  <div className="p-2">
+                    <p className="text-xs font-medium text-muted-foreground px-2 py-1">Connected Accounts</p>
+                    
+                    {connectedAccounts.map((account) => (
+                      <div 
+                        key={account.email}
+                        className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary group"
+                      >
+                        {account.photoURL ? (
+                          <img src={account.photoURL} alt={account.displayName} className="w-6 h-6 rounded-full" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-medium">
+                            {account.displayName.charAt(0)}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate">{account.email}</p>
+                        </div>
+                        {account.isPrimary && (
+                          <span className="text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded">Primary</span>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeAccount(account.email);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/10 rounded transition-all"
+                        >
+                          <X className="h-3 w-3 text-destructive" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <button
+                      onClick={handleAddAccount}
+                      className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-secondary text-accent mt-1"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      <span className="text-sm font-medium">Add another account</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Compose Button */}
@@ -299,13 +382,29 @@ const Inbox = () => {
           ) : (
             <>
               {/* Email Stats Summary */}
-              <div className="border-b border-border px-4 py-3 bg-card/30">
+              <div className="border-b border-border px-4 py-3 bg-card/30 flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">
                   Showing <span className="text-foreground font-medium">{filteredEmails.length}</span> of {emails.length} emails
                   {unreadCount > 0 && (
                     <span className="ml-2">(<span className="text-accent">{unreadCount} unread</span>)</span>
                   )}
                 </span>
+                
+                {/* Account Filter */}
+                {connectedAccounts.length > 1 && (
+                  <select
+                    value={selectedAccountFilter}
+                    onChange={(e) => setSelectedAccountFilter(e.target.value)}
+                    className="text-sm bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground"
+                  >
+                    <option value="all">All Accounts</option>
+                    {connectedAccounts.map((account) => (
+                      <option key={account.email} value={account.email}>
+                        {account.email}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               
               {/* Email List */}
@@ -346,12 +445,29 @@ const Inbox = () => {
                             </span>
                           </div>
                         </div>
+                        
+                        {/* Recipient info */}
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className="text-xs text-muted-foreground">To:</span>
+                          <span className="text-xs text-foreground/70 truncate">
+                            {email.recipient || email.recipientEmail}
+                          </span>
+                        </div>
+                        
                         <p className={`text-sm truncate mb-1 ${!email.isRead ? 'font-medium text-foreground' : 'text-foreground'}`}>
                           {email.subject}
                         </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {email.preview}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-muted-foreground truncate flex-1">
+                            {email.preview}
+                          </p>
+                          {/* Account indicator for multi-account */}
+                          {connectedAccounts.length > 1 && email.accountEmail && (
+                            <span className="text-xs bg-secondary px-1.5 py-0.5 rounded text-muted-foreground flex-shrink-0">
+                              {email.accountEmail.split('@')[0]}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       
                       {/* Star indicator */}

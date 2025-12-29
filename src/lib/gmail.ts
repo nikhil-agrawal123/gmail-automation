@@ -1,32 +1,5 @@
-export interface GmailMessage {
-  id: string;
-  threadId: string;
-  sender: string;
-  senderEmail: string;
-  subject: string;
-  preview: string;
-  date: Date;
-  isRead: boolean;
-  hasAttachment: boolean;
-  labelIds: string[];
-}
-
-export interface GmailLabel {
-  id: string;
-  name: string;
-  type: 'system' | 'user';
-  messageListVisibility?: string;
-  labelListVisibility?: string;
-  messagesTotal?: number;
-  messagesUnread?: number;
-  threadsTotal?: number;
-  threadsUnread?: number;
-}
-
-interface GmailMessageHeader {
-  name: string;
-  value: string;
-}
+import { GmailMessage } from "@/interface/GmailMessage";
+import { GmailLabel, GmailMessageHeader } from "@/interface/GmailLabel";
 
 interface GmailMessagePart {
   partId: string;
@@ -176,15 +149,15 @@ function getHeader(headers: GmailMessageHeader[], name: string): string {
 }
 
 /**
- * Parses sender string to extract name and email
+ * Parses email address string to extract name and email
  */
-function parseSender(from: string): { name: string; email: string } {
+function parseEmailAddress(emailString: string): { name: string; email: string } {
   // Format can be: "Name <email@domain.com>" or just "email@domain.com"
-  const match = from.match(/^(.+?)\s*<(.+?)>$/);
+  const match = emailString.match(/^(.+?)\s*<(.+?)>$/);
   if (match) {
     return { name: match[1].replace(/"/g, '').trim(), email: match[2] };
   }
-  return { name: from, email: from };
+  return { name: emailString, email: emailString };
 }
 
 /**
@@ -202,31 +175,68 @@ function hasAttachments(payload: GmailMessageResponse['payload']): boolean {
 /**
  * Transforms Gmail API response to our GmailMessage format
  */
-function transformMessage(message: GmailMessageResponse): GmailMessage {
+function transformMessage(message: GmailMessageResponse, accountEmail?: string): GmailMessage {
   const headers = message.payload.headers;
   const from = getHeader(headers, 'From');
-  const { name, email } = parseSender(from);
+  const to = getHeader(headers, 'To');
+  const { name: senderName, email: senderEmail } = parseEmailAddress(from);
+  const { name: recipientName, email: recipientEmail } = parseEmailAddress(to);
 
   return {
     id: message.id,
     threadId: message.threadId,
-    sender: name,
-    senderEmail: email,
+    sender: senderName,
+    senderEmail: senderEmail,
+    recipient: recipientName,
+    recipientEmail: recipientEmail,
     subject: getHeader(headers, 'Subject') || '(No Subject)',
     preview: message.snippet || '',
     date: new Date(parseInt(message.internalDate)),
     isRead: !message.labelIds.includes('UNREAD'),
     hasAttachment: hasAttachments(message.payload),
     labelIds: message.labelIds,
+    accountEmail: accountEmail,
   };
 }
 
 /**
- * Fetches top emails from Gmail
+ * Fetches messages in batches to avoid rate limiting (429 errors)
+ * Processes messages in batches with a delay between batches
+ */
+async function fetchMessagesWithThrottle(
+  ids: string[],
+  fetchFn: (id: string) => Promise<GmailMessageResponse>,
+  batchSize: number = 10,
+  delayMs: number = 300
+): Promise<GmailMessageResponse[]> {
+  const results: GmailMessageResponse[] = [];
+  
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
+    try {
+      const batchResults = await Promise.all(batch.map(fetchFn));
+      results.push(...batchResults);
+    } catch (error) {
+      console.error(`Error fetching batch at index ${i}:`, error);
+      // Continue with other batches instead of failing completely
+    }
+    
+    // Add delay between batches to avoid rate limiting
+    if (i + batchSize < ids.length) {
+      await new Promise(res => setTimeout(res, delayMs));
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * Fetches top emails from Gmail with throttling to avoid rate limits
  */
 export async function fetchGmailMessages(
   accessToken: string,
-  maxResults: number = 20
+  maxResults: number = 10,
+  accountEmail?: string
 ): Promise<GmailMessage[]> {
   try {
     // Get list of message IDs
@@ -236,12 +246,16 @@ export async function fetchGmailMessages(
       return [];
     }
 
-    // Fetch all messages in parallel
-    const messagePromises = messageIds.map((id) => fetchMessage(accessToken, id));
-    const messages = await Promise.all(messagePromises);
+    // Fetch messages in batches of 15-20 to avoid rate limiting
+    const messages = await fetchMessagesWithThrottle(
+      messageIds,
+      (id) => fetchMessage(accessToken, id),
+      10, // batch size
+      300 // delay between batches in ms
+    );
 
-    // Transform and return
-    return messages.map(transformMessage);
+    // Transform and return with account email
+    return messages.map(msg => transformMessage(msg, accountEmail));
   } catch (error) {
     console.error('Error fetching Gmail messages:', error);
     throw error;
