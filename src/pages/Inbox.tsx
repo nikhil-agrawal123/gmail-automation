@@ -6,7 +6,6 @@ import {
   Send, 
   Star, 
   Trash2, 
-  Archive,
   RefreshCw,
   Settings,
   LogOut,
@@ -26,15 +25,13 @@ import {
   getInboxStats,
   fetchLabelDetails,
   formatRelativeTime,
-  type GmailMessage,
-  type GmailLabel 
 } from '@/lib/gmail';
+import { GmailMessage } from '@/interface/GmailMessage';
+import { GmailLabel } from '@/interface/GmailLabel';
 
 const sidebarItems = [
   { icon: InboxIcon, label: 'Inbox', count: 0, active: true, id: 'INBOX' },
-  { icon: Star, label: 'Starred', count: 0, id: 'STARRED' },
   { icon: Send, label: 'Sent', id: 'SENT' },
-  { icon: Archive, label: 'Archive', id: 'ARCHIVE' },
   { icon: Trash2, label: 'Trash', id: 'TRASH' },
 ];
 
