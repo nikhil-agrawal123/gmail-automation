@@ -30,6 +30,7 @@ import { GmailMessage } from '@/interface/GmailMessage';
 import { GmailLabel } from '@/interface/GmailLabel';
 import { ComposeModal } from '@/components/ComposeModal';
 import { EmailDetail } from '@/components/EmailDetail';
+import generateText from '@/lib/gemini';
 
 const sidebarItems = [
   { icon: InboxIcon, label: 'Inbox', count: 0, active: true, id: 'INBOX' },
@@ -137,6 +138,7 @@ const Inbox = () => {
   };
 
   const handleLogout = async () => {
+    console.log( generateText("this is a test request"));
     await signOut();
     navigate('/');
   };
@@ -149,9 +151,6 @@ const Inbox = () => {
     }
     return item;
   });
-
-  // Filter user labels (exclude system labels)
-  const userLabels = labels.filter(l => l.type === 'user');
 
   // Filter emails based on search query and account filter
   const filteredEmails = emails.filter(email => {
