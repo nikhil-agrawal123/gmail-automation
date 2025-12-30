@@ -329,3 +329,22 @@ export async function getInboxStats(accessToken: string): Promise<{
     throw error;
   }
 }
+
+export async function markMessageAsRead(accessToken: string, messageId: string): Promise<void> {
+  const response = await fetch(
+    `${GMAIL_API_BASE}/users/me/messages/${messageId}/modify`,
+    {      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        removeLabelIds: ['UNREAD'],
+      }),
+    }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(`Failed to mark message as read: ${response.status} - ${errorData.error?.message || response.statusText}`);
+  }
+}

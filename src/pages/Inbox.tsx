@@ -16,7 +16,9 @@ import {
   Paperclip,
   UserPlus,
   X,
-  ChevronDown
+  ChevronDown,
+  Timer,
+  GalleryVerticalEnd
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth, ConnectedAccount } from '@/contexts/AuthContext';
@@ -25,6 +27,7 @@ import {
   getInboxStats,
   fetchLabelDetails,
   formatRelativeTime,
+  markMessageAsRead
 } from '@/lib/gmail';
 import { GmailMessage } from '@/interface/GmailMessage';
 import { GmailLabel } from '@/interface/GmailLabel';
@@ -36,6 +39,8 @@ const sidebarItems = [
   { icon: InboxIcon, label: 'Inbox', count: 0, active: true, id: 'INBOX' },
   { icon: Send, label: 'Sent', id: 'SENT' },
   { icon: Trash2, label: 'Trash', id: 'TRASH' },
+  { icon: Timer, label: 'Deadlines', id: 'DEADLINES' },
+  { icon: GalleryVerticalEnd, label: 'Assignments', id: 'ASSIGNMENTS' },
 ];
 
 const Inbox = () => {
@@ -490,9 +495,32 @@ const Inbox = () => {
                       className={`flex items-start gap-4 px-4 py-3 hover:bg-secondary/50 cursor-pointer transition-colors ${
                         !email.isRead ? 'bg-accent/5' : ''
                       }`}
-                      onClick={() => {
+                      onClick={async () => {
                         setSelectedEmail(email);
                         setShowEmailDetail(true);
+                        
+                        // Mark as read if unread
+                        if (!email.isRead) {
+                          try {
+                            // Find the access token for this email's account
+                            const account = connectedAccounts.find(a => a.email === email.accountEmail);
+                            const token = account?.accessToken || accessToken;
+                            
+                            if (token) {
+                              await markMessageAsRead(token, email.id);
+                              
+                              // Update local state to reflect the read status
+                              setEmails(prevEmails => 
+                                prevEmails.map(e => 
+                                  e.id === email.id ? { ...e, isRead: true } : e
+                                )
+                              );
+                              setSelectedEmail({ ...email, isRead: true });
+                            }
+                          } catch (err) {
+                            console.error('Failed to mark email as read:', err);
+                          }
+                        }
                       }}
                     >
                       {/* Avatar */}
