@@ -181,6 +181,44 @@ function hasAttachments(payload: GmailMessageResponse['payload']): boolean {
   return false;
 }
 
+function base64UrlToUtf8(data: string): string {
+  // Gmail uses base64url (RFC 4648 §5)
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+function findFirstMimePart(part: GmailMessageResponse['payload'], mimeType: string): string | undefined {
+  // Single-part message
+  if (part.mimeType === mimeType && part.body?.data) return part.body.data;
+
+  // Multi-part message
+  if (part.parts && part.parts.length > 0) {
+    for (const p of part.parts) {
+      const found = findFirstMimePart(p as any, mimeType);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
+}
+
+function extractBodies(payload: GmailMessageResponse['payload']): { html?: string; text?: string } {
+  const htmlData = findFirstMimePart(payload, 'text/html') ?? (payload.mimeType === 'text/html' ? payload.body?.data : undefined);
+  const textData = findFirstMimePart(payload, 'text/plain') ?? (payload.mimeType === 'text/plain' ? payload.body?.data : undefined);
+
+  return {
+    html: htmlData ? base64UrlToUtf8(htmlData) : undefined,
+    text: textData ? base64UrlToUtf8(textData) : undefined,
+  };
+}
+
+
 /**
  * Transforms Gmail API response to our GmailMessage format
  */
@@ -190,6 +228,8 @@ function transformMessage(message: GmailMessageResponse, accountEmail?: string):
   const to = getHeader(headers, 'To');
   const { name: senderName, email: senderEmail } = parseEmailAddress(from);
   const { name: recipientName, email: recipientEmail } = parseEmailAddress(to);
+
+  const { html, text } = extractBodies(message.payload);
 
   return {
     id: message.id,
@@ -205,9 +245,11 @@ function transformMessage(message: GmailMessageResponse, accountEmail?: string):
     hasAttachment: hasAttachments(message.payload),
     labelIds: message.labelIds,
     accountEmail: accountEmail,
+
+    bodyHtml: html, 
+    bodyText: text, 
   };
 }
-
 /**
  * Fetches messages in batches to avoid rate limiting (429 errors)
  * Processes messages in batches with a delay between batches

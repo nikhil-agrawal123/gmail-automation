@@ -12,4 +12,6 @@ export interface GmailMessage {
   hasAttachment: boolean;
   labelIds: string[];
   accountEmail?: string; // For multi-account support
+  bodyHtml?: string;
+  bodyText?: string;
 }

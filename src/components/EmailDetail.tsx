@@ -81,9 +81,20 @@ const EmailDetail = ({ email, isOpen, onClose, onReply }: EmailDetailProps) => {
 
             {/* Email Body */}
             <div className="space-y-4">
-              <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                {email.preview}
-              </p>
+              {email.bodyHtml ? (
+                <div 
+                  className="text-sm text-foreground leading-relaxed prose prose-sm max-w-none dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: email.bodyHtml }}
+                />
+              ) : email.bodyText ? (
+                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                  {email.bodyText}
+                </p>
+              ) : (
+                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                  {email.preview}
+                </p>
+              )}
 
               {/* Attachments Placeholder */}
               {email.hasAttachment && (

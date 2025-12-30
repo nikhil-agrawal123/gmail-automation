@@ -7,8 +7,6 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, googleProvider, db } from '@/lib/firebase';
-import bcrypt from 'bcryptjs';
-// Interface for a connected account
 export interface ConnectedAccount {
   email: string;
   displayName: string;
