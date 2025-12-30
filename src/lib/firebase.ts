@@ -23,6 +23,12 @@ export const auth = getAuth(app);
 // Initialize Google Auth Provider
 export const googleProvider = new GoogleAuthProvider();
 
+// Request offline access to get refresh token
+googleProvider.setCustomParameters({
+  access_type: 'offline',
+  prompt: 'consent',
+});
+
 // Available scopes based on Google Cloud Console configuration
 // Login scopes
 googleProvider.addScope('openid');

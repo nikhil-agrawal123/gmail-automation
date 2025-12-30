@@ -45,7 +45,7 @@ const sidebarItems = [
 
 const Inbox = () => {
   const navigate = useNavigate();
-  const { user, accessToken, signOut, connectedAccounts, addAccount, removeAccount } = useAuth();
+  const { user, signOut, connectedAccounts, addAccount, removeAccount, getAccessToken, forceRefreshAccessToken } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [emails, setEmails] = useState<GmailMessage[]>([]);
@@ -65,8 +65,8 @@ const Inbox = () => {
   const [hasMoreEmails, setHasMoreEmails] = useState(true);
 
   const fetchData = async (showRefreshSpinner = false, loadMore = false) => {
-    if (!accessToken && connectedAccounts.length === 0) {
-      setError('No access token available. Please sign in again.');
+    if (connectedAccounts.length === 0) {
+      setError('No accounts connected. Please sign in again.');
       setIsLoading(false);
       return;
     }
@@ -93,26 +93,44 @@ const Inbox = () => {
       const allNewEmails: GmailMessage[] = [];
       const newPageTokens: Record<string, string | undefined> = loadMore ? { ...pageTokens } : {};
       let anyHasMore = false;
-      
-      const accountsToFetch = connectedAccounts.length > 0 
-        ? connectedAccounts 
-        : accessToken 
-          ? [{ email: user?.email || 'primary', accessToken }] 
-          : [];
 
-      for (const account of accountsToFetch) {
+      for (const account of connectedAccounts) {
         try {
+          // Get access token from backend (uses stored refresh token)
+          let accessToken = await getAccessToken(account.email);
           const currentPageToken = loadMore ? pageTokens[account.email] : undefined;
-          const { messages, nextPageToken } = await fetchGmailMessages(
-            account.accessToken, 
-            10, 
-            account.email,
-            currentPageToken
-          );
-          allNewEmails.push(...messages);
-          newPageTokens[account.email] = nextPageToken;
-          if (nextPageToken) {
-            anyHasMore = true;
+          
+          try {
+            const { messages, nextPageToken } = await fetchGmailMessages(
+              accessToken, 
+              10, 
+              account.email,
+              currentPageToken
+            );
+            allNewEmails.push(...messages);
+            newPageTokens[account.email] = nextPageToken;
+            if (nextPageToken) {
+              anyHasMore = true;
+            }
+          } catch (err: any) {
+            // If 401, try to force refresh and retry
+            if (err.message?.includes('401')) {
+              console.log(`Token expired for ${account.email}, refreshing...`);
+              accessToken = await forceRefreshAccessToken(account.email);
+              const { messages, nextPageToken } = await fetchGmailMessages(
+                accessToken, 
+                10, 
+                account.email,
+                currentPageToken
+              );
+              allNewEmails.push(...messages);
+              newPageTokens[account.email] = nextPageToken;
+              if (nextPageToken) {
+                anyHasMore = true;
+              }
+            } else {
+              throw err;
+            }
           }
         } catch (err) {
           console.error(`Failed to fetch from ${account.email}:`, err);
@@ -136,27 +154,32 @@ const Inbox = () => {
 
       // Fetch stats from primary account (only on initial load)
       if (!loadMore) {
-        const primaryToken = connectedAccounts.find(a => a.isPrimary)?.accessToken || accessToken;
-        if (primaryToken) {
-          const statsResult = await getInboxStats(primaryToken);
-          setLabels(statsResult.labels);
-        
-        // Fetch detailed stats for important labels
-        const labelIds = ['INBOX', 'STARRED', 'SENT', 'TRASH', 'DRAFT', 'SPAM'];
-        const statsMap: Record<string, { total: number; unread: number }> = {};
-        
-        for (const labelId of labelIds) {
+        const primaryAccount = connectedAccounts.find(a => a.isPrimary) || connectedAccounts[0];
+        if (primaryAccount) {
           try {
-            const labelDetail = await fetchLabelDetails(primaryToken, labelId);
-            statsMap[labelId] = {
-              total: labelDetail.messagesTotal || 0,
-              unread: labelDetail.messagesUnread || 0,
-            };
-          } catch (e) {
-            statsMap[labelId] = { total: 0, unread: 0 };
+            const primaryToken = await getAccessToken(primaryAccount.email);
+            const statsResult = await getInboxStats(primaryToken);
+            setLabels(statsResult.labels);
+        
+            // Fetch detailed stats for important labels
+            const labelIds = ['INBOX', 'STARRED', 'SENT', 'TRASH', 'DRAFT', 'SPAM'];
+            const statsMap: Record<string, { total: number; unread: number }> = {};
+        
+            for (const labelId of labelIds) {
+              try {
+                const labelDetail = await fetchLabelDetails(primaryToken, labelId);
+                statsMap[labelId] = {
+                  total: labelDetail.messagesTotal || 0,
+                  unread: labelDetail.messagesUnread || 0,
+                };
+              } catch (e) {
+                statsMap[labelId] = { total: 0, unread: 0 };
+              }
+            }
+            setLabelStats(statsMap);
+          } catch (err) {
+            console.error('Error fetching stats:', err);
           }
-        }
-        setLabelStats(statsMap);
         }
       }
     } catch (err: any) {
@@ -172,13 +195,13 @@ const Inbox = () => {
   };
 
   useEffect(() => {
-    if (accessToken || connectedAccounts.length > 0) {
+    if (connectedAccounts.length > 0) {
       fetchData();
     } else {
       setIsLoading(false);
       setError('Please sign in to view your emails.');
     }
-  }, [accessToken, connectedAccounts.length]);
+  }, [connectedAccounts.length]);
 
   const handleRefresh = () => {
     fetchData(true);
@@ -500,23 +523,18 @@ const Inbox = () => {
                         setShowEmailDetail(true);
                         
                         // Mark as read if unread
-                        if (!email.isRead) {
+                        if (!email.isRead && email.accountEmail) {
                           try {
-                            // Find the access token for this email's account
-                            const account = connectedAccounts.find(a => a.email === email.accountEmail);
-                            const token = account?.accessToken || accessToken;
+                            const token = await getAccessToken(email.accountEmail);
+                            await markMessageAsRead(token, email.id);
                             
-                            if (token) {
-                              await markMessageAsRead(token, email.id);
-                              
-                              // Update local state to reflect the read status
-                              setEmails(prevEmails => 
-                                prevEmails.map(e => 
-                                  e.id === email.id ? { ...e, isRead: true } : e
-                                )
-                              );
-                              setSelectedEmail({ ...email, isRead: true });
-                            }
+                            // Update local state to reflect the read status
+                            setEmails(prevEmails => 
+                              prevEmails.map(e => 
+                                e.id === email.id ? { ...e, isRead: true } : e
+                              )
+                            );
+                            setSelectedEmail({ ...email, isRead: true });
                           } catch (err) {
                             console.error('Failed to mark email as read:', err);
                           }
